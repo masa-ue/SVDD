@@ -1,0 +1,15 @@
+name: dnaconv
+type: cnn # not find what it's for
+# hidden_size: 768
+# cond_dim: 128
+length: 200 # for gosai
+# n_blocks: 12
+# n_heads: 12
+# scale_by_sigma: True
+# dropout: 0.1
+# tie_word_embeddings: False
+hidden_dim: 128
+num_cnn_stacks: 4
+dropout: 0.0
+clean_data: False
+cls_free_guidance: False
