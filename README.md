@@ -45,3 +45,16 @@ Then, to get pre-trained diffusoin models/oracles from W&B, run
 ```
 python allmodels/model_load.py
 ```
+
+## References
+
+If you find this work useful in your research, please cite:
+
+```
+@article{li2024derivative,
+  title={Derivative-Free Guidance in Continuous and Discrete Diffusion Models with Soft Value-Based Decoding},
+  author={Li, Xiner and Zhao, Yulai and Wang, Chenyu and Scalia, Gabriele and Eraslan, Gokcen and Nair, Surag and Biancalani, Tommaso and Regev, Aviv and Levine, Sergey and Uehara, Masatoshi},
+  journal={arXiv preprint arXiv:2408.08252},
+  year={2024}
+}
+```
