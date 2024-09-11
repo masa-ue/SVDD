@@ -110,37 +110,16 @@ def run(args, rank=None):
         torch.backends.cudnn.enabled=False
     else:
         model.eval()
-    gen_samples, value_func_preds, reward_model_preds, selected_baseline_preds, baseline_preds = model.controlled_decode_DPS(gen_batch_num=args.val_batch_num, sample_M=args.sample_M)
+    gen_samples, value_func_preds, reward_model_preds, selected_baseline_preds, baseline_preds = model.controlled_decode_DPS(gen_batch_num=args.val_batch_num, guidance_scale = args.guidance_scale)
 
     hepg2_values_ours_value_func = value_func_preds.cpu().numpy()
     hepg2_values_ours = reward_model_preds.cpu().numpy()
-    hepg2_values_selected = selected_baseline_preds.cpu().numpy()
     hepg2_values_baseline = baseline_preds.cpu().numpy()
 
     np.savez( "./log/%s-%s-DPS" %(args.task, args.reward_name), decoding = hepg2_values_ours, baseline = hepg2_values_baseline)
-
-    import pandas as pd
-    # Create a DataFrame for seaborn
-    df = pd.DataFrame({
-        f'{args.reward_name}': np.concatenate([hepg2_values_ours_value_func, hepg2_values_ours, hepg2_values_selected, hepg2_values_baseline]),
-        'Type': ['Ours (V)'] * len(hepg2_values_ours_value_func) + ['Ours'] * len(hepg2_values_ours) + ['Filtered'] * len(hepg2_values_selected) + ['Baseline'] * len(hepg2_values_baseline)
-    })
-
-    # Plot using seaborn
-    plt.figure(figsize=(15, 10))
-    sns.violinplot(x='Type', y=f'{args.reward_name}', data=df, inner='box', scale='width')
-    plt.title(f'Distribution of {args.reward_name} Values')
-    plt.xlabel('Type')
-    plt.ylabel(f'{args.reward_name}')
-
-    # Save the plot
-    plt.savefig(f"{args.reward_name}_distribution_comparison.png")
-
-    # Upload to wandb
-    wandb.log({f"{args.reward_name}_distribution_comparison": wandb.Image(f"{args.reward_name}_distribution_comparison.png")})
-
     wandb.finish()
 
+    
 
 if __name__ == '__main__':
 
@@ -175,6 +154,7 @@ if __name__ == '__main__':
                         help="name of the tokenizer", required=False)
     parser.add_argument('--n_layer', type=int, default=8,
                         help="number of layers", required=False)
+    parser.add_argument('--guidance_scale', type=float, default= 1.5, required=True)
     parser.add_argument('--n_head', type=int, default=8,
                         help="number of heads", required=False)
     parser.add_argument('--n_embd', type=int, default=768,
@@ -185,8 +165,6 @@ if __name__ == '__main__':
                         help="total iterations", required=False)
     parser.add_argument('--batch_size', type=int, default=64,
                         help="batch size", required=False)
-    parser.add_argument('--sample_M', type=int, default=5,
-                        help="sample width", required=False)
     parser.add_argument('--val_batch_num', type=int, default=1,
                         help="val batches", required=False)
     parser.add_argument('--num_workers', type=int, default=12,

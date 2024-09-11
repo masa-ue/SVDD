@@ -958,7 +958,7 @@ class Diffusion(L.LightningModule):
     return x
 
 
-  def controlled_sample_DPS(self, pre_scorer_embedding, pre_scorer_head, num_steps=None, eps=1e-5, eval_sp_size=None, sample_M=10):
+  def controlled_sample_DPS(self, pre_scorer_embedding, pre_scorer_head, num_steps=None, eps=1e-5, eval_sp_size=None, guidance_scale = None):
     """Generate samples from the model."""
     if eval_sp_size is None:
       batch_size_per_gpu = self.config.loader.eval_batch_size
@@ -981,7 +981,7 @@ class Diffusion(L.LightningModule):
       t = timesteps[i] * torch.ones(
         x.shape[0], 1, device=self.device)
       if self.sampler == 'ddpm':  
-        x, x1, x2, x3 = self._ddpm_update_finetune_DPS(x, t, dt, pre_scorer_embedding, pre_scorer_head)
+        x, x1, x2, x3 = self._ddpm_update_finetune_DPS(x, t, dt, pre_scorer_embedding, pre_scorer_head, guidance_scale)
       else:
         x = self._analytic_update(x, t, dt)
 
@@ -1124,7 +1124,7 @@ class Diffusion(L.LightningModule):
     final_samples = torch.stack(final_samples, dim=0)
     return final_samples, x, q_xs, copy_flag
 
-  def _ddpm_update_finetune_DPS(self, x, t, dt, pre_scorer_embedding, pre_scorer_head):
+  def _ddpm_update_finetune_DPS(self, x, t, dt, pre_scorer_embedding, pre_scorer_head, guidance_scale):
     sigma_t, _ = self.noise(t)
     sigma_s, _ = self.noise(t - dt)
     if sigma_t.ndim > 1:
@@ -1150,7 +1150,7 @@ class Diffusion(L.LightningModule):
     x_grad = self.compute_gradient(self.transform_samples(x).float(), pre_scorer_embedding, pre_scorer_head )
     zero_pad = torch.zeros( q_xs.size()[0], q_xs.size()[1], 1).cuda()
     x_grad = torch.cat((x_grad, zero_pad), 2)
-    _x = _sample_categorical(q_xs + 1.5 * x_grad)
+    _x = _sample_categorical(q_xs + guidance_scale * x_grad)
     copy_flag = (x != self.mask_index).to(x.dtype)
     return copy_flag * x + (1 - copy_flag) * _x, x, q_xs, copy_flag
   

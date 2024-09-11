@@ -477,7 +477,7 @@ class BaseModel(nn.Module):
         return samples, torch.cat(value_func_preds), torch.cat(reward_model_preds), top_k_values, torch.cat(baseline_preds)
 
 
-    def controlled_decode_DPS(self, gen_batch_num, sample_M):
+    def controlled_decode_DPS(self, gen_batch_num, guidance_scale, sample_M = 10):
         if self.task == "rna_old":
             self.reward_model = LightningModel.load_from_checkpoint(
                 "/home/lix361/projects/rna_optimization/controlled_decoding_diffusion/artifacts/model:v8/model.ckpt",
@@ -517,7 +517,7 @@ class BaseModel(nn.Module):
         value_func_preds = []
         reward_model_preds = []
         for i in range(gen_batch_num):
-            batch_samples = self.ref_model.controlled_sample_DPS(self.embedding, self.head, eval_sp_size=self.NUM_SAMPLES_PER_BATCH, sample_M=sample_M)
+            batch_samples = self.ref_model.controlled_sample_DPS(self.embedding, self.head, eval_sp_size=self.NUM_SAMPLES_PER_BATCH, guidance_scale = guidance_scale)
             samples.append(batch_samples)
             onehot_samples = self.transform_samples(batch_samples)
             value_func_preds.extend(self.head(self.embedding(onehot_samples.float())).squeeze(2).detach())
@@ -533,7 +533,7 @@ class BaseModel(nn.Module):
         # baseline_samples = []
         baseline_preds = []
         all_preds = []
-        for i in range(gen_batch_num*sample_M):
+        for i in range(gen_batch_num* sample_M):
             batch = self.ref_model.decode_sample(eval_sp_size=self.NUM_SAMPLES_PER_BATCH)
             onehot_samples = self.transform_samples(batch)
             if self.task == "rna_saluki":
