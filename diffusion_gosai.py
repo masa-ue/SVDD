@@ -916,6 +916,89 @@ class Diffusion(L.LightningModule):
     return x.detach()
 
   @torch.no_grad()
+  def controlled_sample_TDS(self, reward_model, alpha, num_steps=None, eps=1e-5, eval_sp_size=None, sample_M=10):
+    """Generate samples from the model."""
+    if eval_sp_size is None:
+      batch_size_per_gpu = self.config.loader.eval_batch_size
+    else:
+      batch_size_per_gpu = eval_sp_size
+    if self.parameterization == 'ar':
+      return self._ar_sampler(batch_size_per_gpu)
+    # Lightning auto-casting is not working in this method for some reason
+    if num_steps is None:
+      num_steps = self.config.sampling.steps
+    x = self._sample_prior(
+      batch_size_per_gpu,
+      self.config.model.length).to(self.device)
+    timesteps = torch.linspace(
+      1, eps, num_steps + 1, device=self.device)
+    dt = (1 - eps) / num_steps
+    p_x0_cache = None
+
+    for i in range(num_steps):
+      t = timesteps[i] * torch.ones(
+        x.shape[0], 1, device=self.device)
+      if self.sampler == 'ddpm':
+        x  = self._ddpm_update_finetune_controlled_TDS(x, t, dt, reward_model,alpha)
+      else:
+        x = self._analytic_update(x, t, dt)
+
+    if self.config.sampling.noise_removal:
+      t = timesteps[-1] * torch.ones(x.shape[0], 1,
+                                     device=self.device)
+      if self.sampler == 'analytic':
+        x = self._denoiser_update(x, t)
+      else:
+        unet_conditioning = self.noise(t)[0]
+        logits = self.forward(x, unet_conditioning)
+        # print(logits.shape) # (batch_size, seq_len, vocab_size)
+        # x=argmax of logits of the unmasked tokens
+        # no issue with subs; for sedd, if not using [:, :, :-1], some samples will contain the mask token
+        x = logits[:, :, :-1].argmax(dim=-1)
+    return x
+
+  def controlled_sample_DPS(self, reward_model, guidance_scale, num_steps=None, eps=1e-5, eval_sp_size=None, sample_M=10):
+    """Generate samples from the model."""
+    if eval_sp_size is None:
+      batch_size_per_gpu = self.config.loader.eval_batch_size
+    else:
+      batch_size_per_gpu = eval_sp_size
+    if self.parameterization == 'ar':
+      return self._ar_sampler(batch_size_per_gpu)
+    # Lightning auto-casting is not working in this method for some reason
+    if num_steps is None:
+      num_steps = self.config.sampling.steps
+    x = self._sample_prior(
+      batch_size_per_gpu,
+      self.config.model.length).to(self.device)
+    timesteps = torch.linspace(
+      1, eps, num_steps + 1, device=self.device)
+    dt = (1 - eps) / num_steps
+    p_x0_cache = None
+
+    for i in range(num_steps):
+      t = timesteps[i] * torch.ones(
+        x.shape[0], 1, device=self.device)
+      if self.sampler == 'ddpm':
+        x  = self._ddpm_update_finetune_controlled_DPS(x, t, dt, reward_model, guidance_scale)
+      else:
+        x = self._analytic_update(x, t, dt)
+
+    if self.config.sampling.noise_removal:
+      t = timesteps[-1] * torch.ones(x.shape[0], 1,
+                                     device=self.device)
+      if self.sampler == 'analytic':
+        x = self._denoiser_update(x, t)
+      else:
+        unet_conditioning = self.noise(t)[0]
+        logits = self.forward(x, unet_conditioning)
+        # print(logits.shape) # (batch_size, seq_len, vocab_size)
+        # x=argmax of logits of the unmasked tokens
+        # no issue with subs; for sedd, if not using [:, :, :-1], some samples will contain the mask token
+        x = logits[:, :, :-1].argmax(dim=-1)
+    return x
+
+  @torch.no_grad()
   def controlled_sample(self, pre_scorer_embedding, pre_scorer_head, num_steps=None, eps=1e-5, eval_sp_size=None, sample_M=10):
     """Generate samples from the model."""
     if eval_sp_size is None:
@@ -958,7 +1041,7 @@ class Diffusion(L.LightningModule):
     return x
 
 
-  def controlled_sample_DPS(self, pre_scorer_embedding, pre_scorer_head, num_steps=None, eps=1e-5, eval_sp_size=None, guidance_scale = None):
+  def controlled_sample_classfier(self, pre_scorer_embedding, pre_scorer_head, num_steps=None, eps=1e-5, eval_sp_size=None, guidance_scale = None):
     """Generate samples from the model."""
     if eval_sp_size is None:
       batch_size_per_gpu = self.config.loader.eval_batch_size
@@ -981,7 +1064,7 @@ class Diffusion(L.LightningModule):
       t = timesteps[i] * torch.ones(
         x.shape[0], 1, device=self.device)
       if self.sampler == 'ddpm':  
-        x, x1, x2, x3 = self._ddpm_update_finetune_DPS(x, t, dt, pre_scorer_embedding, pre_scorer_head, guidance_scale)
+        x, x1, x2, x3 = self._ddpm_update_finetune_classfier(x, t, dt, pre_scorer_embedding, pre_scorer_head, guidance_scale)
       else:
         x = self._analytic_update(x, t, dt)
 
@@ -1124,7 +1207,103 @@ class Diffusion(L.LightningModule):
     final_samples = torch.stack(final_samples, dim=0)
     return final_samples, x, q_xs, copy_flag
 
-  def _ddpm_update_finetune_DPS(self, x, t, dt, pre_scorer_embedding, pre_scorer_head, guidance_scale):
+  @torch.no_grad()
+  def _ddpm_update_finetune_controlled_TDS(self, x, t, dt, reward_model, alpha = 1.0):
+
+    sigma_t, _ = self.noise(t)
+    sigma_s, _ = self.noise(t - dt)
+    if sigma_t.ndim > 1:
+      sigma_t = sigma_t.squeeze(-1)
+    if sigma_s.ndim > 1:
+      sigma_s = sigma_s.squeeze(-1)
+    assert sigma_t.ndim == 1, sigma_t.shape
+    assert sigma_s.ndim == 1, sigma_s.shape
+    move_chance_t = 1 - torch.exp(-sigma_t)
+    move_chance_s = 1 - torch.exp(-sigma_s)
+    move_chance_t = move_chance_t[:, None, None]
+    move_chance_s = move_chance_s[:, None, None]
+    unet_conditioning = sigma_t
+    log_p_x0 = self.forward(x, unet_conditioning)
+    assert move_chance_t.ndim == log_p_x0.ndim
+    # Technically, this isn't q_xs since there's a division
+    # term that is missing. This division term doesn't affect
+    # the samples.
+    q_xs = log_p_x0.exp() * (move_chance_t
+                             - move_chance_s)
+    q_xs[:, :, self.mask_index] = move_chance_s[:, :, 0]
+
+    # _x = _sample_categorical(q_xs)
+    copy_flag = (x != self.mask_index).to(x.dtype)
+    # return copy_flag * x + (1 - copy_flag) * _x, x, q_xs, copy_flag
+
+    sample = copy_flag * x + (1 - copy_flag) * _sample_categorical(q_xs)
+    '''
+    Calcualte exp(v_{t-1}(x_{t-1)/alpha)
+    '''
+    expected_x0 = self.forward(sample, sigma_s) # Calcualte E[x_0|x_{t-1}]
+    expected_x0_arg = torch.argmax(expected_x0,dim=2)
+    expected_x0_onehot = torch.nn.functional.one_hot(expected_x0_arg)
+    reward_num = reward_model(expected_x0_onehot.float().transpose(1, 2)).detach()[:, 0][:, 0]
+    '''
+    Calcualte exp(v_{t}(x_{t})/alpha)
+    '''
+    expected_x0 = self.forward(x, sigma_s) # Calcualte E[x_0|x_t]
+    expected_x0_arg = torch.argmax(expected_x0,dim=2) 
+    expected_x0_onehot = torch.nn.functional.one_hot(expected_x0_arg)
+    reward_den = reward_model(expected_x0_onehot.float().transpose(1, 2)).detach()[:, 0][:, 0]
+    
+  
+    ratio = torch.exp(1.0/alpha * (reward_num - reward_den)) # Now calculate exp( (v_{t-1}(x_{t-1) -v_{t}(x_{t}) /alpha) 
+    ratio = ratio.detach().cpu().numpy()
+    final_sample_indices = np.random.choice(reward_num.shape[0], reward_num.shape[0], p =  ratio/ratio.sum() ) 
+   
+    return sample[final_sample_indices]
+  
+  def _ddpm_update_finetune_controlled_DPS(self, x, t, dt, reward_model,  guidance_scale):
+
+    sigma_t, _ = self.noise(t)
+    sigma_s, _ = self.noise(t - dt)
+    if sigma_t.ndim > 1:
+      sigma_t = sigma_t.squeeze(-1)
+    if sigma_s.ndim > 1:
+      sigma_s = sigma_s.squeeze(-1)
+    assert sigma_t.ndim == 1, sigma_t.shape
+    assert sigma_s.ndim == 1, sigma_s.shape
+    move_chance_t = 1 - torch.exp(-sigma_t)
+    move_chance_s = 1 - torch.exp(-sigma_s)
+    move_chance_t = move_chance_t[:, None, None]
+    move_chance_s = move_chance_s[:, None, None]
+    unet_conditioning = sigma_t
+    log_p_x0 = self.forward(x, unet_conditioning)
+    assert move_chance_t.ndim == log_p_x0.ndim
+    # Technically, this isn't q_xs since there's a division
+    # term that is missing. This division term doesn't affect
+    # the samples.
+    q_xs = log_p_x0.exp() * (move_chance_t
+                             - move_chance_s)
+    q_xs[:, :, self.mask_index] = move_chance_s[:, :, 0]
+
+    x_grad = self.compute_gradient_DPS(self.transform_samples(x).float(), reward_model, sigma_s )
+    zero_pad = torch.zeros( q_xs.size()[0], q_xs.size()[1], 1).cuda()
+    x_grad = torch.cat((x_grad, zero_pad), 2)
+    _x = _sample_categorical(q_xs + guidance_scale * x_grad)
+    copy_flag = (x != self.mask_index).to(x.dtype)
+    return copy_flag * x + (1 - copy_flag) * _x, x, q_xs, copy_flag
+
+  def compute_gradient_DPS(self, x, reward_model, sigma_s):
+    x.requires_grad_(True)
+    #pre_scorer_embedding.rnn_layer.train()
+    #pre_scorer_head.rnn_layer.train()
+    expected_x0 = self.forward(x, sigma_s) # Calcualte E[x_0|x_t]
+    expected_x0_arg = torch.argmax(expected_x0,dim=2) 
+    expected_x0_onehot = torch.nn.functional.one_hot(expected_x0_arg)
+    scores = reward_model(expected_x0_onehot.float().transpose(1, 2)).detach()[:, 0][:, 0]
+    scores = scores.mean()
+    scores.backward()
+    x_grad = x.grad.clone()
+    return x_grad
+
+  def _ddpm_update_finetune_classfier(self, x, t, dt, pre_scorer_embedding, pre_scorer_head, guidance_scale):
     sigma_t, _ = self.noise(t)
     sigma_s, _ = self.noise(t - dt)
     if sigma_t.ndim > 1:

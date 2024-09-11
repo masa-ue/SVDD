@@ -107,7 +107,7 @@ def run(args, rank=None):
     model.cuda()
     model.eval()
 
-    gen_samples, value_func_preds, reward_model_preds, selected_baseline_preds, baseline_preds = model.controlled_decode_DPS(gen_batch_num=args.val_batch_num, sample_M=args.sample_M, guidance_scale = args.guidance_scale )
+    gen_samples, value_func_preds, reward_model_preds, selected_baseline_preds, baseline_preds = model.controlled_decode_TDS(gen_batch_num=args.val_batch_num, sample_M=args.sample_M, alpha = args.alpha )
 
     hepg2_values_ours_value_func = value_func_preds.cpu().numpy()
 
@@ -115,7 +115,7 @@ def run(args, rank=None):
     hepg2_values_selected = selected_baseline_preds.cpu().numpy()
     hepg2_values_baseline = baseline_preds.cpu().numpy()
     print(hepg2_values_baseline.shape)
-    np.savez( "./log/%s-%s_DPS" %(args.task, args.reward_name), decoding = hepg2_values_ours, baseline = hepg2_values_baseline)
+    np.savez( "./log/%s-%s_TDS" %(args.task, args.reward_name), decoding = hepg2_values_ours, baseline = hepg2_values_baseline)
 
 
     wandb.finish()
@@ -180,7 +180,7 @@ if __name__ == '__main__':
                         help="number of layers in lstm", required=False)
     parser.add_argument('--max_len', type=int, default=512,
                         help="max_len", required=False)
-    parser.add_argument('--guidance_scale', type=float, default=1.5,
+    parser.add_argument('--alpha', type=float, default=1.0,
                         help="alph", required=False)
     parser.add_argument('--seed', type=int, default=44,
                         help="seed", required=False)

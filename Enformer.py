@@ -476,8 +476,167 @@ class BaseModel(nn.Module):
 
         return samples, torch.cat(value_func_preds), torch.cat(reward_model_preds), top_k_values, torch.cat(baseline_preds)
 
+    @torch.no_grad()
+    def controlled_decode_TDS(self, gen_batch_num, sample_M, alpha):
+        if self.task == "rna_old":
+            self.reward_model = LightningModel.load_from_checkpoint(
+                "/home/lix361/projects/rna_optimization/controlled_decoding_diffusion/artifacts/model:v8/model.ckpt",
+                map_location='cpu')
+        elif self.task == "rna":
+            self.reward_model = LightningModel.load_from_checkpoint(
+                  "artifacts/RNA_evaluation:v0/model.ckpt",
+                map_location='cpu')
+        elif self.task == "rna_saluki":
+            common_trunk = ConvGRUTrunk(
+                stem_channels=64,
+                stem_kernel_size=15,
+                n_conv=6,
+                channel_init=64,
+                channel_mult=1,
+                kernel_size=5,
+                act_func="relu",
+                conv_norm=True,
+                pool_func=None,  # None, "max", "avg"
+                pool_size=None,
+                residual=True,  # False
+                crop_len=0,
+                n_gru=1,
+                dropout=0.1,  # 0.3
+                gru_norm=True, )
+            human_head = ConvHead(n_tasks=1, in_channels=64, act_func=None, pool_func='avg', norm=False)
+            self.reward_model = OriBaseModel(embedding=common_trunk, head=human_head)
+            ckpt_human = torch.load('/home/lix361/projects/rna_optimization/prediction_half_life/storage/ConvGRUModel_nochange_nopool_residual_ConvHeadnoactnonorm_dp0.1_lr1e-4_noclip_interbatch/epoch31/model_human.pth', map_location='cpu')
+            self.reward_model.load_state_dict(ckpt_human, strict=True)
+        else:
+            self.reward_model = LightningModel.load_from_checkpoint(
+                 "artifacts/DNA_evaluation:v0/model.ckpt", map_location='cpu')
 
-    def controlled_decode_DPS(self, gen_batch_num, guidance_scale, sample_M = 10):
+        self.reward_model.cuda()
+        self.reward_model.eval()
+        samples = []
+        value_func_preds = []
+        reward_model_preds = []
+        for i in range(gen_batch_num):
+            batch_samples = self.ref_model.controlled_sample_TDS(self.reward_model, alpha, eval_sp_size=self.NUM_SAMPLES_PER_BATCH, sample_M=sample_M)
+            samples.append(batch_samples)
+            onehot_samples = self.transform_samples(batch_samples)
+            value_func_preds.extend(self.head(self.embedding(onehot_samples.float())).squeeze(2).detach())
+            if self.task == "rna_saluki":
+                pred = self.reward_model(self.transform_samples_saluki(batch_samples).float()).detach().squeeze(2)
+            elif self.n_tasks==1:
+                pred = self.reward_model(onehot_samples.float().transpose(1, 2)).detach()[:, 0]
+            else:
+                pred = self.reward_model(onehot_samples.float().transpose(1, 2)).detach()
+            reward_model_preds.extend(pred)
+
+        print("Value-weighted sampling done.")
+        # baseline_samples = []
+        baseline_preds = []
+        all_preds = []
+        for i in range(gen_batch_num*sample_M):
+            batch = self.ref_model.decode_sample(eval_sp_size=self.NUM_SAMPLES_PER_BATCH)
+            onehot_samples = self.transform_samples(batch)
+            if self.task == "rna_saluki":
+                pred = self.reward_model(self.transform_samples_saluki(batch).float()).detach().squeeze(2)
+            elif self.n_tasks==1:
+                pred = self.reward_model(onehot_samples.float().transpose(1, 2)).detach()[:, 0]
+            else:
+                pred = self.reward_model(onehot_samples.float().transpose(1, 2)).detach()
+            if i < gen_batch_num:
+                baseline_preds.extend(pred)
+            all_preds.extend(pred)
+
+        print("Baseline sampling done.")
+
+        all_values = torch.cat(all_preds)
+        # Compute the number of top elements to select
+        k = int(len(all_values) / sample_M)
+        # Get the top k values
+        top_k_values, _ = torch.topk(all_values, k)
+
+        return samples, torch.cat(value_func_preds), torch.cat(reward_model_preds), top_k_values, torch.cat(baseline_preds)
+    
+
+    def controlled_decode_DPS(self, gen_batch_num, sample_M, guidance_scale ):
+        if self.task == "rna_old":
+            self.reward_model = LightningModel.load_from_checkpoint(
+                "/home/lix361/projects/rna_optimization/controlled_decoding_diffusion/artifacts/model:v8/model.ckpt",
+                map_location='cpu')
+        elif self.task == "rna":
+            self.reward_model = LightningModel.load_from_checkpoint(
+                  "artifacts/RNA_evaluation:v0/model.ckpt",
+                map_location='cpu')
+        elif self.task == "rna_saluki":
+            common_trunk = ConvGRUTrunk(
+                stem_channels=64,
+                stem_kernel_size=15,
+                n_conv=6,
+                channel_init=64,
+                channel_mult=1,
+                kernel_size=5,
+                act_func="relu",
+                conv_norm=True,
+                pool_func=None,  # None, "max", "avg"
+                pool_size=None,
+                residual=True,  # False
+                crop_len=0,
+                n_gru=1,
+                dropout=0.1,  # 0.3
+                gru_norm=True, )
+            human_head = ConvHead(n_tasks=1, in_channels=64, act_func=None, pool_func='avg', norm=False)
+            self.reward_model = OriBaseModel(embedding=common_trunk, head=human_head)
+            ckpt_human = torch.load('/home/lix361/projects/rna_optimization/prediction_half_life/storage/ConvGRUModel_nochange_nopool_residual_ConvHeadnoactnonorm_dp0.1_lr1e-4_noclip_interbatch/epoch31/model_human.pth', map_location='cpu')
+            self.reward_model.load_state_dict(ckpt_human, strict=True)
+        else:
+            self.reward_model = LightningModel.load_from_checkpoint(
+                 "artifacts/DNA_evaluation:v0/model.ckpt", map_location='cpu')
+
+        self.reward_model.cuda()
+        self.reward_model.eval()
+        samples = []
+        value_func_preds = []
+        reward_model_preds = []
+        for i in range(gen_batch_num):
+            batch_samples = self.ref_model.controlled_sample_DPS(self.reward_model, guidance_scale, eval_sp_size=self.NUM_SAMPLES_PER_BATCH, sample_M=sample_M)
+            samples.append(batch_samples)
+            onehot_samples = self.transform_samples(batch_samples)
+            value_func_preds.extend(self.head(self.embedding(onehot_samples.float())).squeeze(2).detach())
+            if self.task == "rna_saluki":
+                pred = self.reward_model(self.transform_samples_saluki(batch_samples).float()).detach().squeeze(2)
+            elif self.n_tasks==1:
+                pred = self.reward_model(onehot_samples.float().transpose(1, 2)).detach()[:, 0]
+            else:
+                pred = self.reward_model(onehot_samples.float().transpose(1, 2)).detach()
+            reward_model_preds.extend(pred)
+
+        print("Value-weighted sampling done.")
+        # baseline_samples = []
+        baseline_preds = []
+        all_preds = []
+        for i in range(gen_batch_num*sample_M):
+            batch = self.ref_model.decode_sample(eval_sp_size=self.NUM_SAMPLES_PER_BATCH)
+            onehot_samples = self.transform_samples(batch)
+            if self.task == "rna_saluki":
+                pred = self.reward_model(self.transform_samples_saluki(batch).float()).detach().squeeze(2)
+            elif self.n_tasks==1:
+                pred = self.reward_model(onehot_samples.float().transpose(1, 2)).detach()[:, 0]
+            else:
+                pred = self.reward_model(onehot_samples.float().transpose(1, 2)).detach()
+            if i < gen_batch_num:
+                baseline_preds.extend(pred)
+            all_preds.extend(pred)
+
+        print("Baseline sampling done.")
+
+        all_values = torch.cat(all_preds)
+        # Compute the number of top elements to select
+        k = int(len(all_values) / sample_M)
+        # Get the top k values
+        top_k_values, _ = torch.topk(all_values, k)
+
+        return samples, torch.cat(value_func_preds), torch.cat(reward_model_preds), top_k_values, torch.cat(baseline_preds)
+
+    def controlled_decode_classfier(self, gen_batch_num, guidance_scale, sample_M = 10):
         if self.task == "rna_old":
             self.reward_model = LightningModel.load_from_checkpoint(
                 "/home/lix361/projects/rna_optimization/controlled_decoding_diffusion/artifacts/model:v8/model.ckpt",
@@ -517,7 +676,7 @@ class BaseModel(nn.Module):
         value_func_preds = []
         reward_model_preds = []
         for i in range(gen_batch_num):
-            batch_samples = self.ref_model.controlled_sample_DPS(self.embedding, self.head, eval_sp_size=self.NUM_SAMPLES_PER_BATCH, guidance_scale = guidance_scale)
+            batch_samples = self.ref_model.controlled_sample_classfier(self.embedding, self.head, eval_sp_size=self.NUM_SAMPLES_PER_BATCH, guidance_scale = guidance_scale)
             samples.append(batch_samples)
             onehot_samples = self.transform_samples(batch_samples)
             value_func_preds.extend(self.head(self.embedding(onehot_samples.float())).squeeze(2).detach())
@@ -555,6 +714,7 @@ class BaseModel(nn.Module):
         top_k_values, _ = torch.topk(all_values, k)
 
         return samples, torch.cat(value_func_preds), torch.cat(reward_model_preds), top_k_values, torch.cat(baseline_preds)
+    
     
     @torch.no_grad()
     def controlled_decode_tweedie(self, gen_batch_num, sample_M, options):

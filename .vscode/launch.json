@@ -4,6 +4,8 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+
+
         
 
 
@@ -14,8 +16,8 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "env": {"CUDA_VISIBLE_DEVICES":"2"},
-            "args": ["--load_checkpoint_path", "artifacts/RNA_MRL_oracle:v0/rna_MRL_diffusion_convgru_6_64_512_ep10_it2800.pt" , "--task", "rna", "--sample_M", "10", "--tweedie", "True"] 
+            "env": {"CUDA_VISIBLE_DEVICES":"5"},
+            "args": ["--load_checkpoint_path", "artifacts/DNA_value:v0/human_enhancer_diffusion_enformer_7_11_1536_16_ep10_it3500.pt" , "--task", "dna", "--guidance_scale", "1.5"] 
 
         }
     ]

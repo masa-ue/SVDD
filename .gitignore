@@ -4,3 +4,4 @@ wandb/
 artifacts/
 *.pyc
 .vscode
+test_evaluation.ipynb
