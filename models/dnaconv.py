@@ -208,3 +208,40 @@ class CNNModel(nn.Module):
             else:
                 return self.cls_head(feat)
         return feat
+
+    def forward2(self, seq, t, cls = None, return_embedding=False):
+        #seq = F.one_hot(seq, num_classes=self.alphabet_size).float()
+
+        if self.args.clean_data:
+            feat = self.linear(seq)
+            feat = feat.permute(0, 2, 1)
+        else:
+            time_emb = F.relu(self.time_embedder(t))
+            feat = seq.permute(0, 2, 1)
+            feat = F.relu(self.linear(feat))
+
+        if self.args.cls_free_guidance and not self.classifier:
+            cls_emb = self.cls_embedder(cls)
+
+        for i in range(self.num_layers):
+            h = self.dropout(feat.clone())
+            if not self.args.clean_data:
+                h = h + self.time_layers[i](time_emb)[:, :, None]
+            if self.args.cls_free_guidance and not self.classifier:
+                h = h + self.cls_layers[i](cls_emb)[:, :, None]
+            h = self.norms[i]((h).permute(0, 2, 1))
+            h = F.relu(self.convs[i](h.permute(0, 2, 1)))
+            if h.shape == feat.shape:
+                feat = h + feat
+            else:
+                feat = h
+        feat = self.final_conv(feat)
+        feat = feat.permute(0, 2, 1)
+        if self.classifier:
+            feat = feat.mean(dim=1)
+            if return_embedding:
+                embedding = self.cls_head[:1](feat)
+                return self.cls_head[1:](embedding), embedding
+            else:
+                return self.cls_head(feat)
+        return feat

@@ -356,6 +356,26 @@ class Diffusion(L.LightningModule):
       return self._d3pm_parameterization(logits=logits)
     return logits
 
+  def forward2(self, x_onehot, x, sigma):
+    """Returns log score."""
+    # TODO: where is the sigma configed and input into the model?
+    sigma = self._process_sigma(sigma)
+    # x = F.one_hot(x, num_classes=self.vocab_size).to(torch.float32)
+
+    with torch.cuda.amp.autocast(dtype=torch.float32):
+      logits = self.backbone.forward2(x_onehot, sigma)
+    
+    if self.parameterization == 'subs':
+      return self._subs_parameterization(logits=logits,
+                                         xt=x)
+    elif self.parameterization == 'sedd':
+      return self._sedd_parameterization(logits=logits,
+                                         xt=x,
+                                         sigma=sigma)
+    elif self.parameterization == 'd3pm':
+      return self._d3pm_parameterization(logits=logits)
+    return logits
+
   def _d3pm_loss(self, model_output, xt, x0, t):
     dt = 1 / self.T
 
@@ -1282,25 +1302,19 @@ class Diffusion(L.LightningModule):
     q_xs = log_p_x0.exp() * (move_chance_t
                              - move_chance_s)
     q_xs[:, :, self.mask_index] = move_chance_s[:, :, 0]
-
-    x_grad = self.compute_gradient_DPS(self.transform_samples(x).float(), reward_model, sigma_s )
-    zero_pad = torch.zeros( q_xs.size()[0], q_xs.size()[1], 1).cuda()
-    x_grad = torch.cat((x_grad, zero_pad), 2)
+    x_onehot = F.one_hot(x, num_classes=5).float()
+    x_grad = self.compute_gradient_DPS(x_onehot, x, reward_model, sigma_s )
     _x = _sample_categorical(q_xs + guidance_scale * x_grad)
     copy_flag = (x != self.mask_index).to(x.dtype)
-    return copy_flag * x + (1 - copy_flag) * _x, x, q_xs, copy_flag
+    return copy_flag * x + (1 - copy_flag) * _x 
 
-  def compute_gradient_DPS(self, x, reward_model, sigma_s):
-    x.requires_grad_(True)
-    #pre_scorer_embedding.rnn_layer.train()
-    #pre_scorer_head.rnn_layer.train()
-    expected_x0 = self.forward(x, sigma_s) # Calcualte E[x_0|x_t]
-    expected_x0_arg = torch.argmax(expected_x0,dim=2) 
-    expected_x0_onehot = torch.nn.functional.one_hot(expected_x0_arg)
-    scores = reward_model(expected_x0_onehot.float().transpose(1, 2)).detach()[:, 0][:, 0]
+  def compute_gradient_DPS(self, x_onehot, x, reward_model, sigma_s):
+    x_onehot.requires_grad_(True)
+    expected_x0 = self.forward2(x_onehot, x, sigma_s) # Calcualte E[x_0|x_t]
+    scores = reward_model(expected_x0.transpose(1, 2)[:,0:4,:])[:, 0]
     scores = scores.mean()
     scores.backward()
-    x_grad = x.grad.clone()
+    x_grad = x_onehot.grad.clone()
     return x_grad
 
   def _ddpm_update_finetune_classfier(self, x, t, dt, pre_scorer_embedding, pre_scorer_head, guidance_scale):

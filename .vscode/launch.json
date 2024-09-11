@@ -17,7 +17,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "env": {"CUDA_VISIBLE_DEVICES":"5"},
-            "args": ["--load_checkpoint_path", "artifacts/DNA_value:v0/human_enhancer_diffusion_enformer_7_11_1536_16_ep10_it3500.pt" , "--task", "dna", "--guidance_scale", "1.5"] 
+            "args": ["--load_checkpoint_path", "artifacts/DNA_value:v0/human_enhancer_diffusion_enformer_7_11_1536_16_ep10_it3500.pt" , "--task", "dna", "--guidance_scale", "1000.0"] 
 
         }
     ]
