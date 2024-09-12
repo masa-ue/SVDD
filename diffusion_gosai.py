@@ -1301,10 +1301,16 @@ class Diffusion(L.LightningModule):
     # the samples.
     q_xs = log_p_x0.exp() * (move_chance_t
                              - move_chance_s)
-    q_xs[:, :, self.mask_index] = move_chance_s[:, :, 0]
     x_onehot = F.one_hot(x, num_classes=5).float()
+
     x_grad = self.compute_gradient_DPS(x_onehot, x, reward_model, sigma_s )
-    _x = _sample_categorical(q_xs + guidance_scale * x_grad)
+    guidance = guidance_scale * (x_grad - x_grad[:, :, self.mask_index][:, :, None])
+    q_xs[:, :, self.mask_index] = move_chance_s[:, :, 0]
+    # print(q_xs.sum(-1))
+    q_xs = q_xs * guidance.exp()
+
+    _x = _sample_categorical(q_xs)
+    # _x = _sample_categorical(q_xs + guidance_scale * x_grad)
     copy_flag = (x != self.mask_index).to(x.dtype)
     return copy_flag * x + (1 - copy_flag) * _x 
 
