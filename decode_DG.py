@@ -25,7 +25,7 @@ from trainer import Trainer, TrainerConfig
 from dataset import DNA_reg_Dataset, SimpleDNATokenizer, DNA_reg_conv_Dataset
 from Enformer import BaseModel, BaseModelMultiSep, ConvHead, EnformerTrunk, TimedEnformerTrunk
 
-
+import wandb 
 
 
 def set_seed(seed):
@@ -53,8 +53,7 @@ def run(args, rank=None):
     set_seed(args.seed)
     args_dict = vars(args)
     wandb.init(
-        #entity='grelu',
-        project="RNA-optimization",
+        project="DNA-optimization",
         job_type='FA',
         name='decode',
         # track hyperparameters and run metadata
@@ -78,7 +77,8 @@ def run(args, rank=None):
         common_trunk = EnformerTrunk(n_conv=7, channels=1536, n_transformers=11, n_heads=8, key_len=64,
                                      attn_dropout=0.05, pos_dropout=0.01, ff_dropout=0.4, crop_len=0)
         reg_head = ConvHead(n_tasks=1, in_channels=2 * 1536, act_func=None, pool_func='avg')
-        model = BaseModel(embedding=common_trunk, head=reg_head, cdq=args.cdq, batch_size=args.batch_size, val_batch_num=1, task=args.task, n_tasks=args.n_task, saluki_body=args.saluki_body)
+        model = BaseModel(embedding=common_trunk, head=reg_head, cdq=args.cdq, batch_size=args.batch_size,
+                          val_batch_num=1, task=args.task, n_tasks=args.n_task, saluki_body=args.saluki_body)
     elif args.model == 'multienformer':
         common_trunk = EnformerTrunk(n_conv=7, channels=1536, n_transformers=11, n_heads=8, key_len=64,
                                      attn_dropout=0.05, pos_dropout=0.01, ff_dropout=0.4, crop_len=0)
@@ -106,15 +106,17 @@ def run(args, rank=None):
 
     model.cuda()
     model.eval()
-   
-    gen_samples, value_func_preds, reward_model_preds, selected_baseline_preds, baseline_preds = model.controlled_decode(gen_batch_num=args.val_batch_num, sample_M=args.sample_M)
+
+    gen_samples, value_func_preds, reward_model_preds, selected_baseline_preds, baseline_preds = model.controlled_decode_DPS(gen_batch_num=args.val_batch_num, sample_M=args.sample_M, guidance_scale = args.guidance_scale )
 
     hepg2_values_ours_value_func = value_func_preds.cpu().numpy()
+
     hepg2_values_ours = reward_model_preds.cpu().numpy()
     hepg2_values_selected = selected_baseline_preds.cpu().numpy()
     hepg2_values_baseline = baseline_preds.cpu().numpy()
+    print(hepg2_values_baseline.shape)
+    np.savez( "./log/%s-%s_DPS" %(args.task, args.reward_name), decoding = hepg2_values_ours, baseline = hepg2_values_baseline)
 
-    np.savez( "./log/%s-%s" %(args.task, args.reward_name), decoding = hepg2_values_ours, baseline = hepg2_values_baseline)
 
     wandb.finish()
 
@@ -127,7 +129,7 @@ if __name__ == '__main__':
                         help="name for wandb run", required=False)
     parser.add_argument('--debug', action='store_true',
                         default=False, help='debug')
-    parser.add_argument('--task', type=str, default="DNA",
+    parser.add_argument('--task', type=str, default="rna_saluki",
                         help="task", required=False)
     parser.add_argument('--saluki_body', type=int, default=0,
                         required=False)
@@ -160,9 +162,9 @@ if __name__ == '__main__':
                         help="total epochs", required=False)
     parser.add_argument('--max_iters', type=int, default=50000,
                         help="total iterations", required=False)
-    parser.add_argument('--batch_size', type=int, default= 256,
+    parser.add_argument('--batch_size', type=int, default=64,
                         help="batch size", required=False)
-    parser.add_argument('--sample_M', type=int, default=5,
+    parser.add_argument('--sample_M', type=int, default=20,
                         help="sample width", required=False)
     parser.add_argument('--val_batch_num', type=int, default=1,
                         help="val batches", required=False)
@@ -178,6 +180,8 @@ if __name__ == '__main__':
                         help="number of layers in lstm", required=False)
     parser.add_argument('--max_len', type=int, default=512,
                         help="max_len", required=False)
+    parser.add_argument('--guidance_scale', type=float, default=1.5,
+                        help="alph", required=False)
     parser.add_argument('--seed', type=int, default=44,
                         help="seed", required=False)
     parser.add_argument('--reward_name', type=str, default='HepG2',
@@ -200,14 +204,13 @@ if __name__ == '__main__':
     parser.add_argument('--fix_condition', default=None,
                         help="fixed condition num", required=False)
     parser.add_argument('--conditions_path', default=None,
-                        help="Path to the generation condition", required=False)
+                        help="Path to the generation condition", required=False) 
     parser.add_argument('--conditions_split_id_path', default=None,
                         help="Path to the conditions_split_id", required=False)
     parser.add_argument('--cdq', action='store_true',
                         default=False, help='CD-Q')
     parser.add_argument('--dist', action='store_true',
                         default=False, help='use torch.distributed to train the model in parallel')
-
     args = parser.parse_args()
 
     run(args)

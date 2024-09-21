@@ -105,7 +105,8 @@ def run(args, rank=None):
     print('total params:', sum(p.numel() for p in model.parameters()))
 
     model.cuda()
-    model.eval()
+    model.train()
+    #model.eval()
 
     gen_samples, value_func_preds, reward_model_preds, selected_baseline_preds, baseline_preds = model.controlled_decode_DPS(gen_batch_num=args.val_batch_num, sample_M=args.sample_M, guidance_scale = args.guidance_scale )
 
@@ -162,7 +163,7 @@ if __name__ == '__main__':
                         help="total epochs", required=False)
     parser.add_argument('--max_iters', type=int, default=50000,
                         help="total iterations", required=False)
-    parser.add_argument('--batch_size', type=int, default=64,
+    parser.add_argument('--batch_size', type=int, default=256,
                         help="batch size", required=False)
     parser.add_argument('--sample_M', type=int, default=20,
                         help="sample width", required=False)

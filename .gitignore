@@ -3,5 +3,6 @@ wandb/
 /__pycache__/
 artifacts/
 *.pyc
-.vscode
+.vscode/
+*.json
 test_evaluation.ipynb

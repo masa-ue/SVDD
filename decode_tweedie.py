@@ -162,7 +162,7 @@ if __name__ == '__main__':
                         help="total epochs", required=False)
     parser.add_argument('--max_iters', type=int, default=50000,
                         help="total iterations", required=False)
-    parser.add_argument('--batch_size', type=int, default=64,
+    parser.add_argument('--batch_size', type=int, default=256,
                         help="batch size", required=False)
     parser.add_argument('--sample_M', type=int, default=20,
                         help="sample width", required=False)

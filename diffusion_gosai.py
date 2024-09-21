@@ -1262,14 +1262,18 @@ class Diffusion(L.LightningModule):
     '''
     expected_x0 = self.forward(sample, sigma_s) # Calcualte E[x_0|x_{t-1}]
     expected_x0_arg = torch.argmax(expected_x0,dim=2)
-    expected_x0_onehot = torch.nn.functional.one_hot(expected_x0_arg)
+    expected_x0_onehot = torch.nn.functional.one_hot(expected_x0_arg, 4)
+
+    copy_next_flag = (x != self.mask_index).to(x.dtype)
+    expected_x0_onehot = copy_next_flag[:, :, None] * torch.nn.functional.one_hot(sample)[:, :, 0:4] + (1 - copy_next_flag[:, :, None]) * expected_x0_onehot 
     reward_num = reward_model(expected_x0_onehot.float().transpose(1, 2)).detach()[:, 0][:, 0]
     '''
     Calcualte exp(v_{t}(x_{t})/alpha)
     '''
     expected_x0 = self.forward(x, sigma_s) # Calcualte E[x_0|x_t]
     expected_x0_arg = torch.argmax(expected_x0,dim=2) 
-    expected_x0_onehot = torch.nn.functional.one_hot(expected_x0_arg)
+    expected_x0_onehot = torch.nn.functional.one_hot(expected_x0_arg, 4)
+    expected_x0_onehot = copy_flag[:, :, None] * torch.nn.functional.one_hot(x)[:, :, 0:4] + (1- copy_flag[:, :, None]) * expected_x0_onehot
     reward_den = reward_model(expected_x0_onehot.float().transpose(1, 2)).detach()[:, 0][:, 0]
     
   
@@ -1302,8 +1306,8 @@ class Diffusion(L.LightningModule):
     q_xs = log_p_x0.exp() * (move_chance_t
                              - move_chance_s)
     x_onehot = F.one_hot(x, num_classes=5).float()
-
-    x_grad = self.compute_gradient_DPS(x_onehot, x, reward_model, sigma_s )
+    copy_flag = (x != self.mask_index).to(x.dtype)    
+    x_grad = self.compute_gradient_DPS(x_onehot, x, reward_model, sigma_s,  copy_flag )
     guidance = guidance_scale * (x_grad - x_grad[:, :, self.mask_index][:, :, None])
     q_xs[:, :, self.mask_index] = move_chance_s[:, :, 0]
     # print(q_xs.sum(-1))
@@ -1311,12 +1315,14 @@ class Diffusion(L.LightningModule):
 
     _x = _sample_categorical(q_xs)
     # _x = _sample_categorical(q_xs + guidance_scale * x_grad)
-    copy_flag = (x != self.mask_index).to(x.dtype)
+    
     return copy_flag * x + (1 - copy_flag) * _x 
 
-  def compute_gradient_DPS(self, x_onehot, x, reward_model, sigma_s):
+  def compute_gradient_DPS(self, x_onehot, x, reward_model, sigma_s, copy_flag):
     x_onehot.requires_grad_(True)
     expected_x0 = self.forward2(x_onehot, x, sigma_s) # Calcualte E[x_0|x_t]
+    expected_x0 = copy_flag[:, :, None] * x_onehot + (1 - copy_flag[:, :, None]) * expected_x0  
+    expected_x0 = torch.nn.functional.softmax(expected_x0, dim =2)
     scores = reward_model(expected_x0.transpose(1, 2)[:,0:4,:])[:, 0]
     scores = scores.mean()
     scores.backward()
@@ -1409,6 +1415,8 @@ class Diffusion(L.LightningModule):
         expected_x0 = self.forward(samples[i], sigma_s) # Calcualte E[x_0|x_t]
         expected_x0_arg = torch.argmax(expected_x0,dim=2)
         expected_x0_onehot = torch.nn.functional.one_hot(expected_x0_arg)
+        copy_next_flag = (samples[i] != self.mask_index).to(x.dtype)
+        expected_x0_onehot = copy_next_flag[:, :, None] * torch.nn.functional.one_hot(samples[i])[:, :, 0:4] + (1 - copy_next_flag[:, :, None]) * expected_x0_onehot  
       else: # Use heuristc to make masked sequnce to be 0. I think you used this one before?
         raw_seq = torch.nn.functional.one_hot(samples[i], 5)
         raw_seq = raw_seq[:,:,0:4]
@@ -1418,7 +1426,7 @@ class Diffusion(L.LightningModule):
       if task == "rna_saluki":
         scorer = reward_model(self.transform_samples_saluki(expected_x0_onehot).float()).detach().squeeze(2)
       else:
-        threshold = 1.5
+  
         scorer0 = reward_model(expected_x0_onehot.float().transpose(1, 2)).detach()[:, 0]
         #scorer1 = reward_model(expected_x0_onehot.float().transpose(1, 2)).detach()[:, 1]
         #scorer2 = reward_model(expected_x0_onehot.float().transpose(1, 2)).detach()[:, 2] 

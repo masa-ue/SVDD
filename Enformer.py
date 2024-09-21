@@ -592,7 +592,7 @@ class BaseModel(nn.Module):
                  "artifacts/DNA_evaluation:v0/model.ckpt", map_location='cpu')
 
         self.reward_model.cuda()
-        self.reward_model.eval()
+        #self.reward_model.eval()
         samples = []
         value_func_preds = []
         reward_model_preds = []
