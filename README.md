@@ -1,6 +1,6 @@
 # Derivative-Free Guidance in Diffusion Models with Soft Value-Based Decoding (DNAs, RNAs)
 
-This code accompanies [the paper](https://arxiv.org/abs/2408.08252) on soft value-based decoding in diffusion models, where the objective is to maximize downstream reward functions in diffusion models. In this implementation, we focus on designing biological sequences, such as **DNA (enhancers)** and **RNA (5'UTRs)**. For **images**, refer to [here](https://github.com/masa-ue/SVDD-image). 
+This code accompanies [the paper](https://arxiv.org/abs/2408.08252) on soft value-based decoding in diffusion models, where the objective is to maximize downstream reward functions in diffusion models. In this implementation, we focus on designing biological sequences, such as **DNA (enhancers)** and **RNA (5'UTRs)**. For **images**, refer to [here](https://github.com/masa-ue/SVDD-image). For **molecular tasks**, refer to [here](https://github.com/hyanan16/SVDD-molecule).
 
 
 We will make molecule/protein generation part publicaly available soon. The algorithm is summarized in the following table/figure.  
